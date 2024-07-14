@@ -11,20 +11,23 @@ import {
   connectionFromArray
 } from 'graphql-relay'
 
-import knex from './database'
+import knex from '../data/database'
+import dbCall from '../data/fetch'
+
 import { User, UserConnection } from './User'
+import { Post } from './Post'
 import Sponsor from './Sponsor'
 import { nodeField } from './Node'
 import ContextPost from './ContextPost'
 
 import joinMonster from '../../src/index'
-import dbCall from '../data/fetch'
 import { q } from '../shared'
 
 const { PAGINATE, DB } = process.env
 
 const options = {
-  minify: process.env.MINIFY == 1
+  minify: process.env.MINIFY == 1,
+  aliasPrefix: process.env.ALIAS_PREFIX
 }
 if (knex.client.config.client === 'mysql') {
   options.dialect = PAGINATE ? 'mysql8' : 'mysql'
@@ -62,19 +65,18 @@ export default new GraphQLObjectType({
       },
       extensions: {
         joinMonster: {
+          sqlPageLimit: 100,
           sqlPaginate: !!PAGINATE,
-          ...do {
-            if (PAGINATE === 'offset') {
-              ;({ orderBy: 'id' })
-            } else if (PAGINATE === 'keyset') {
-              ;({
+          ...(PAGINATE === 'offset' ?
+              { orderBy: 'id' }
+            : PAGINATE === 'keyset' ?
+              {
                 sortKey: {
                   order: 'asc',
                   key: 'id'
                 }
-              })
-            }
-          },
+              }
+              : {}),
           where: (table, args) => {
             // this is naughty. do not allow un-escaped GraphQLString inputs into the WHERE clause...
             if (args.search)
@@ -126,6 +128,31 @@ export default new GraphQLObjectType({
           where: (usersTable, args, context) => {
             // eslint-disable-line no-unused-vars
             if (args.id) return `${usersTable}.${q('id', DB)} = ${args.id}`
+          }
+        }
+      },
+      resolve: (parent, args, context, resolveInfo) => {
+        return joinMonster(
+          resolveInfo,
+          context,
+          sql => dbCall(sql, knex, context),
+          options
+        )
+      }
+    },
+    post: {
+      type: Post,
+      args: {
+        id: {
+          description: 'The posts ID number',
+          type: GraphQLInt
+        }
+      },
+      extensions: {
+        joinMonster: {
+          where: (postsTable, args) => {
+            // eslint-disable-line no-unused-vars
+            if (args.id) return `${postsTable}.${q('id', DB)} = ${args.id}`
           }
         }
       },
